@@ -158,7 +158,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
     user = update.effective_user
-    # Fixed upsert with on_conflict
+    # Fixed upsert with on_conflict to avoid duplicate key error
     supabase.table('users').upsert({
         'user_id': user.id,
         'username': user.username,
@@ -203,7 +203,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_message_handler(update, context)
         return
 
-    # Common terms text used for both Buy Accounts and Disclaimer
+    # Common terms text for both Buy Accounts and Disclaimer
     terms_text = (
         "1. Once Accounts is delivered, no returns or refunds will be accepted.\n"
         "2. All Accounts are fresh and valid.\n"
@@ -212,10 +212,8 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if text == "🛒 Buy Accounts":
-        # Show terms with Agree/Decline buttons
         await update.message.reply_text(terms_text, reply_markup=get_agree_decline_keyboard())
     elif text == "📜 Disclaimer":
-        # Show same terms without buttons
         await update.message.reply_text(terms_text)
     elif text == "📦 My Orders":
         orders = supabase.table('orders').select('*').eq('user_id', user.id).order('created_at', desc=True).limit(10).execute()
@@ -247,7 +245,7 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.clear()
         await update.message.reply_text("Select account type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
     elif option == "📊 Stock":
-        msg = "✏️ NETFLIX ACCOUNT SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
+        msg = "✏️ NETFLIX ACCOUNTS SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
         for ct in COUPON_TYPES:
             count = supabase.table('coupons').select('*', count='exact').eq('type', ct).eq('is_used', False).execute()
             stock = count.count if hasattr(count, 'count') else 0
@@ -399,19 +397,22 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     if 'admin_action' in context.user_data:
         action = context.user_data['admin_action']
+        # ==================== ADD ACCOUNT (ONE BLOCK ONLY) ====================
         if action[0] == 'add':
             ctype = action[1]
             if not text:
-                await update.message.reply_text("Please send the account details as text (one per line).")
+                await update.message.reply_text("Please send the account details as text.")
                 return
-            codes = text.strip().split('\n')
-            for code in codes:
-                code = code.strip()
-                if code:
-                    supabase.table('coupons').insert({'code': code, 'type': ctype}).execute()
-            await update.message.reply_text(f"Accounts added successfully to Netflix Account.", reply_markup=get_admin_reply_keyboard())
+            # Treat the entire message as ONE account (no splitting by lines)
+            full_account = text.strip()
+            if full_account:
+                supabase.table('coupons').insert({'code': full_account, 'type': ctype}).execute()
+                await update.message.reply_text(f"✅ 1 account added successfully to Netflix Account.", reply_markup=get_admin_reply_keyboard())
+            else:
+                await update.message.reply_text("❌ Empty message. No account added.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
+        # ==================== REMOVE ACCOUNT (bulk by count) ====================
         elif action[0] == 'remove':
             ctype = action[1]
             try:
@@ -425,6 +426,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
+        # ==================== GET FREE ACCOUNT (bulk by count) ====================
         elif action[0] == 'free':
             ctype = action[1]
             try:
@@ -444,6 +446,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
+        # ==================== CHANGE PRICES ====================
         elif action[0] == 'price':
             ctype = action[1]
             qty = action[2]
@@ -730,7 +733,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ctype = data.split('_')[2]
         context.user_data.clear()
         context.user_data['admin_action'] = ('add', ctype)
-        await query.edit_message_text(f"Send the account details for Netflix Account (one per line):")
+        await query.edit_message_text(f"Send the account details for Netflix Account (one message = one account):")
     elif data.startswith('admin_remove_'):
         ctype = data.split('_')[2]
         context.user_data.clear()
