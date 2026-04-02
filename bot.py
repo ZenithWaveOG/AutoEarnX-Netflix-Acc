@@ -29,6 +29,11 @@ def init_settings():
     status = supabase.table('settings').select('*').eq('key', 'bot_status').execute()
     if not status.data:
         supabase.table('settings').insert({'key': 'bot_status', 'value': 'on'}).execute()
+
+    # ADD THIS: ensure qr_image row exists
+    qr = supabase.table('settings').select('*').eq('key', 'qr_image').execute()
+    if not qr.data:
+        supabase.table('settings').insert({'key': 'qr_image', 'value': ''}).execute()
 init_settings()
 
 def init_prices():
@@ -803,18 +808,22 @@ telegram_app.add_handler(CallbackQueryHandler(cancel_quantity_callback, pattern=
 # ========== FIXED PHOTO HANDLER FOR QR UPDATE ==========
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    # Only proceed if admin and expecting QR
+    # Only process if admin and expecting QR
     if user.id in ADMIN_IDS and context.user_data.get('awaiting_qr'):
         photo = update.message.photo[-1] if update.message.photo else None
         if photo:
             file_id = photo.file_id
-            supabase.table('settings').upsert({'key': 'qr_image', 'value': file_id}).execute()
-            await update.message.reply_text("✅ QR code updated successfully.", reply_markup=get_admin_reply_keyboard())
+            # Use update() instead of upsert to avoid key issues
+            result = supabase.table('settings').update({'value': file_id}).eq('key', 'qr_image').execute()
+            if result.data:
+                await update.message.reply_text("✅ QR code updated successfully.", reply_markup=get_admin_reply_keyboard())
+            else:
+                await update.message.reply_text("❌ Failed to update QR. Contact admin.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('awaiting_qr', None)
         else:
-            await update.message.reply_text("❌ Please send a valid image.", reply_markup=get_admin_reply_keyboard())
+            await update.message.reply_text("❌ Please send a valid image (photo).", reply_markup=get_admin_reply_keyboard())
     else:
-        # If not expecting QR, just ignore (or send a generic message)
+        # Optional: ignore other photos
         pass
 
 telegram_app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
