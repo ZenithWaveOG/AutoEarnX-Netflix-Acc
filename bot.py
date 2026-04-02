@@ -158,12 +158,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
     user = update.effective_user
+    # Fixed upsert with on_conflict
     supabase.table('users').upsert({
         'user_id': user.id,
         'username': user.username,
         'first_name': user.first_name,
         'last_active': datetime.utcnow().isoformat()
-    }).execute()
+    }, on_conflict='user_id').execute()
+    
     await update_user_activity(user.id)
 
     stock_msg = "✏️ NETFLIX ACCOUNTS SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
