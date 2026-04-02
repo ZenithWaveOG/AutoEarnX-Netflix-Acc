@@ -24,7 +24,7 @@ ADMIN_IDS = [8537079657]  # Replace with your Telegram user ID
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ---------- Initialize settings (bot_status, etc.) ----------
+# ---------- Initialize settings ----------
 def init_settings():
     status = supabase.table('settings').select('*').eq('key', 'bot_status').execute()
     if not status.data:
@@ -32,7 +32,6 @@ def init_settings():
 init_settings()
 
 def init_prices():
-    # Only Netflix Premium Acc now
     default_prices = {
         'netflix': {'price_1': 10, 'price_5': 45, 'price_10': 85, 'price_20': 160}
     }
@@ -45,26 +44,23 @@ def init_prices():
             }).execute()
 init_prices()
 
-# Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # ==================== CONSTANTS ====================
-COUPON_TYPES = ['netflix']   # Only one product
-MAX_QUANTITY = 2
+COUPON_TYPES = ['netflix']
+# No MAX_QUANTITY limit
 
 # Conversation states
 SELECTING_COUPON_TYPE, CUSTOM_QUANTITY = range(2)
 WAITING_UTR, WAITING_PAYMENT_SCREENSHOT = range(2, 4)
-
-# Additional states for admin actions
 WAITING_BLOCK_USERNAME, WAITING_UNBLOCK_USERNAME = range(4, 6)
 
-# Define menu button texts
+# Menu button texts
 MAIN_MENU_BUTTONS = {
-    "🛒 Buy Vouchers", "📦 My Orders", "📜 Disclaimer", "🆘 Support", "📢 Our Channels"
+    "🛒 Buy Accounts", "📦 My Orders", "📜 Disclaimer", "🆘 Support", "📢 Our Channels"
 }
 ADMIN_MENU_BUTTONS = {
-    "🛠 Admin Panel", "➕ Add Coupon", "➖ Remove Coupon", "📊 Stock", "🎁 Get Free Code",
+    "🛠 Admin Panel", "➕ Add Account", "➖ Remove Account", "📊 Stock", "🎁 Get Free Account",
     "💰 Change Prices", "📢 Broadcast", "🕒 Last 10 Purchases", "🖼 Update QR",
     "👥 User Status", "🚫 Block User", "✅ Unblock User", "🔛 Turn Off", "🔴 Turn On"
 }
@@ -73,7 +69,7 @@ ALL_MENU_BUTTONS = MAIN_MENU_BUTTONS | ADMIN_MENU_BUTTONS
 # ==================== HELPER FUNCTIONS ====================
 def get_main_menu(user_id=None):
     buttons = [
-        [KeyboardButton("🛒 Buy Vouchers")],
+        [KeyboardButton("🛒 Buy Accounts")],
         [KeyboardButton("📦 My Orders")],
         [KeyboardButton("📜 Disclaimer")],
         [KeyboardButton("🆘 Support"), KeyboardButton("📢 Our Channels")]
@@ -88,8 +84,8 @@ def get_admin_reply_keyboard():
     toggle_text = "🔛 Turn Off" if current == 'on' else "🔴 Turn On"
     
     buttons = [
-        ["➕ Add Coupon", "➖ Remove Coupon"],
-        ["📊 Stock", "🎁 Get Free Code"],
+        ["➕ Add Account", "➖ Remove Account"],
+        ["📊 Stock", "🎁 Get Free Account"],
         ["💰 Change Prices", "📢 Broadcast"],
         ["🕒 Last 10 Purchases", "🖼 Update QR"],
         ["👥 User Status", "🚫 Block User"],
@@ -105,16 +101,14 @@ def get_agree_decline_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_coupon_type_keyboard():
-    # Only Netflix Premium Acc
-    keyboard = [[InlineKeyboardButton("Netflix Premium Acc", callback_data="ctype_netflix")]]
+    keyboard = [[InlineKeyboardButton("Netflix Account", callback_data="ctype_netflix")]]
     return InlineKeyboardMarkup(keyboard)
     
 def generate_order_id():
     return 'ORD' + ''.join(random.choices(string.digits, k=14))
 
 def get_coupon_type_admin_keyboard(action):
-    # Only one product
-    keyboard = [[InlineKeyboardButton("Netflix Premium Acc", callback_data=f"admin_{action}_netflix")]]
+    keyboard = [[InlineKeyboardButton("Netflix Account", callback_data=f"admin_{action}_netflix")]]
     return InlineKeyboardMarkup(keyboard)
 
 async def update_user_activity(user_id):
@@ -131,13 +125,7 @@ async def is_user_blocked(username):
         return False
 
 def reset_user_flow(context):
-    keys = [
-        'coupon_type',
-        'order_id',
-        'qty',
-        'price_per',
-        'total'
-    ]
+    keys = ['coupon_type', 'order_id', 'qty', 'price_per', 'total']
     for k in keys:
         context.user_data.pop(k, None)
 
@@ -178,13 +166,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }).execute()
     await update_user_activity(user.id)
 
-    stock_msg = "✏️ AUTO EARNX ACC SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
+    stock_msg = "✏️ NETFLIX ACCOUNTS SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
     for ct in COUPON_TYPES:
         count = supabase.table('coupons').select('*', count='exact').eq('type', ct).eq('is_used', False).execute()
         stock = count.count if hasattr(count, 'count') else 0
         price = supabase.table('prices').select('price_1').eq('coupon_type', ct).execute()
         price_val = price.data[0]['price_1'] if price.data else 'N/A'
-        stock_msg += f"▫️ Netflix Premium Acc: {stock} left (₹{price_val})\n"
+        stock_msg += f"▫️ Netflix Account: {stock} left (₹{price_val})\n"
 
     await update.message.reply_text(stock_msg, reply_markup=get_main_menu(user.id))
 
@@ -213,15 +201,20 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_message_handler(update, context)
         return
 
-    if text == "🛒 Buy Vouchers":
-        terms = (
-            "1. Once coupon is delivered, no returns or refunds will be accepted.\n"
-            "2. All coupons are fresh and valid.\n"
-            "3. All sales are final. No refunds, no replacements.\n"
-            "4. If coupon shows redeemed, try after some time (10-15 min).\n"
-            "5. If there is a genuine issue and you recorded full screen from payment to applying, you can contact support."
-        )
-        await update.message.reply_text(terms, reply_markup=get_agree_decline_keyboard())
+    # Common terms text used for both Buy Accounts and Disclaimer
+    terms_text = (
+        "1. Once Accounts is delivered, no returns or refunds will be accepted.\n"
+        "2. All Accounts are fresh and valid.\n"
+        "3. All sales are final. No refunds, no replacements.\n"
+        "4. If there is a genuine issue and you recorded full screen from payment to Using, you can contact support."
+    )
+
+    if text == "🛒 Buy Accounts":
+        # Show terms with Agree/Decline buttons
+        await update.message.reply_text(terms_text, reply_markup=get_agree_decline_keyboard())
+    elif text == "📜 Disclaimer":
+        # Show same terms without buttons
+        await update.message.reply_text(terms_text)
     elif text == "📦 My Orders":
         orders = supabase.table('orders').select('*').eq('user_id', user.id).order('created_at', desc=True).limit(10).execute()
         if not orders.data:
@@ -229,22 +222,13 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             msg = "Your last orders:\n"
             for o in orders.data:
-                # Convert type to display name
-                disp_type = "Netflix Premium Acc" if o['coupon_type'] == 'netflix' else o['coupon_type']
+                disp_type = "Netflix Account" if o['coupon_type'] == 'netflix' else o['coupon_type']
                 msg += f"Order {o['order_id']}: {disp_type} x{o['quantity']} - {o['status']}\n"
             await update.message.reply_text(msg)
-    elif text == "📜 Disclaimer":
-        disclaimer = (
-            "1. 🕒 IF CODE SHOW REDEEMED: Wait For 12–13 min Because All Codes Are Checked Before We Add.\n"
-            "2. ⚡️ DELIVERY: codes are delivered immediately after payment confirmation.\n"
-            "3. 🚫 NO REFUNDS: All sales final. No refunds/replacements for any codes.\n"
-            "4. ❌ SUPPORT: For issues, a full screen-record from purchase to application is required."
-        )
-        await update.message.reply_text(disclaimer)
     elif text == "🆘 Support":
         await update.message.reply_text("🆘 Support Contact:\n━━━━━━━━━━━━━━\n@AutoEarnX_SupportBot")
     elif text == "📢 Our Channels":
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("@@AutoEarnX_Shein", url="https://t.me/@AutoEarnX_Shein")]])
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("@AutoEarnX_Shein", url="https://t.me/AutoEarnX_Shein")]])
         await update.message.reply_text("📢 Join our official channels for updates and deals:", reply_markup=keyboard)
     elif text == "🛠 Admin Panel" and user.id in ADMIN_IDS:
         await update.message.reply_text("Admin Panel", reply_markup=get_admin_reply_keyboard())
@@ -254,28 +238,28 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Use the menu buttons.")
 
 async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE, option: str):
-    if option == "➕ Add Coupon":
+    if option == "➕ Add Account":
         context.user_data.clear()
-        await update.message.reply_text("Select coupon type to add:", reply_markup=get_coupon_type_admin_keyboard('add'))
-    elif option == "➖ Remove Coupon":
+        await update.message.reply_text("Select account type to add:", reply_markup=get_coupon_type_admin_keyboard('add'))
+    elif option == "➖ Remove Account":
         context.user_data.clear()
-        await update.message.reply_text("Select coupon type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
+        await update.message.reply_text("Select account type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
     elif option == "📊 Stock":
-        msg = "✏️ AUTO EARNX ACC SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
+        msg = "✏️ NETFLIX ACCOUNT SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
         for ct in COUPON_TYPES:
             count = supabase.table('coupons').select('*', count='exact').eq('type', ct).eq('is_used', False).execute()
             stock = count.count if hasattr(count, 'count') else 0
             price = supabase.table('prices').select('price_1').eq('coupon_type', ct).execute()
             price_val = price.data[0]['price_1'] if price.data else 'N/A'
-            msg += f"▫️ Netflix Premium Acc: {stock} left (₹{price_val})\n"
+            msg += f"▫️ Netflix Account: {stock} left (₹{price_val})\n"
         msg += "\n🤖 Buy from: @VIIP_SELLING_BOT"
         await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
-    elif option == "🎁 Get Free Code":
+    elif option == "🎁 Get Free Account":
         context.user_data.clear()
-        await update.message.reply_text("Select coupon type to get free codes:", reply_markup=get_coupon_type_admin_keyboard('free'))
+        await update.message.reply_text("Select account type to get free accounts:", reply_markup=get_coupon_type_admin_keyboard('free'))
     elif option == "💰 Change Prices":
         context.user_data.clear()
-        await update.message.reply_text("Select coupon type to change prices:", reply_markup=get_coupon_type_admin_keyboard('prices'))
+        await update.message.reply_text("Select account type to change prices:", reply_markup=get_coupon_type_admin_keyboard('prices'))
     elif option == "📢 Broadcast":
         context.user_data.clear()
         context.user_data['broadcast'] = True
@@ -290,7 +274,7 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
                 user = supabase.table('users').select('username').eq('user_id', o['user_id']).execute()
                 username = user.data[0]['username'] if user.data and user.data[0]['username'] else "NoUsername"
                 status_emoji = "✅" if o['status'] == "completed" else "❌" if o['status'] == "declined" else "⏳"
-                disp_type = "Netflix Premium Acc" if o['coupon_type'] == 'netflix' else o['coupon_type']
+                disp_type = "Netflix Account" if o['coupon_type'] == 'netflix' else o['coupon_type']
                 msg += (
                     f"{i}. 👤 @{username}\n"
                     f"   🆔 {o['order_id']}\n"
@@ -416,14 +400,14 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         if action[0] == 'add':
             ctype = action[1]
             if not text:
-                await update.message.reply_text("Please send the coupon codes as text.")
+                await update.message.reply_text("Please send the account details as text (one per line).")
                 return
             codes = text.strip().split('\n')
             for code in codes:
                 code = code.strip()
                 if code:
                     supabase.table('coupons').insert({'code': code, 'type': ctype}).execute()
-            await update.message.reply_text(f"Coupons added successfully to Netflix Premium Acc.", reply_markup=get_admin_reply_keyboard())
+            await update.message.reply_text(f"Accounts added successfully to Netflix Account.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
         elif action[0] == 'remove':
@@ -434,7 +418,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 ids = [c['id'] for c in coupons.data]
                 if ids:
                     supabase.table('coupons').delete().in_('id', ids).execute()
-                await update.message.reply_text(f"Removed {len(ids)} codes from Netflix Premium Acc.", reply_markup=get_admin_reply_keyboard())
+                await update.message.reply_text(f"Removed {len(ids)} accounts from Netflix Account.", reply_markup=get_admin_reply_keyboard())
             except:
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
@@ -453,7 +437,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                         'used_by': update.effective_user.id,
                         'used_at': datetime.utcnow().isoformat()
                     }).eq('code', c['code']).execute()
-                await update.message.reply_text(f"Here are your free codes:\n" + "\n".join(codes), reply_markup=get_admin_reply_keyboard())
+                await update.message.reply_text(f"Here are your free accounts:\n" + "\n".join(codes), reply_markup=get_admin_reply_keyboard())
             except:
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
@@ -465,7 +449,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 new_price = int(text)
                 col = f"price_{qty}"
                 supabase.table('prices').update({col: new_price}).eq('coupon_type', ctype).execute()
-                await update.message.reply_text(f"Price updated for Netflix Premium Acc, {qty} Qty: ₹{new_price}", reply_markup=get_admin_reply_keyboard())
+                await update.message.reply_text(f"Price updated for Netflix Account, {qty} Qty: ₹{new_price}", reply_markup=get_admin_reply_keyboard())
             except:
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
@@ -478,7 +462,7 @@ async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     if query.data == "agree_terms":
         reset_user_flow(context)
-        await query.edit_message_text("🛒 Select a coupon type:", reply_markup=get_coupon_type_keyboard())
+        await query.edit_message_text("🛒 Select an account type:", reply_markup=get_coupon_type_keyboard())
     else:
         await query.edit_message_text("Thanks for using the bot. Goodbye!")
 
@@ -488,7 +472,7 @@ async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     reset_user_flow(context)
-    ctype = query.data.split('_')[1]  # 'netflix'
+    ctype = query.data.split('_')[1]
     context.user_data['coupon_type'] = ctype
 
     count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
@@ -498,8 +482,8 @@ async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("❌ Cancel", callback_data="cancel_quantity")]
     ])
     await query.edit_message_text(
-        f"🏷️ Netflix Premium Acc\n📦 Available stock: {stock}\n\n"
-        f"Please enter the quantity (maximum {MAX_QUANTITY}):",
+        f"🏷️ Netflix Account\n📦 Available stock: {stock}\n\n"
+        f"Please enter the quantity (no limit, subject to stock):",
         reply_markup=cancel_keyboard
     )
     return CUSTOM_QUANTITY
@@ -521,25 +505,26 @@ async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
     try:
         qty = int(text)
-        if qty <= 0 or qty > MAX_QUANTITY:
-            await update.message.reply_text(f"❌ You can order at most {MAX_QUANTITY} coupons per transaction. Please enter a quantity (1-{MAX_QUANTITY}):")
+        if qty <= 0:
+            await update.message.reply_text("❌ Quantity must be a positive number. Please enter a valid quantity:")
             return CUSTOM_QUANTITY
+        # No upper limit
         ctype = context.user_data.get('coupon_type')
         if not ctype:
-            await update.message.reply_text("Error: coupon type not set. Please start over.")
+            await update.message.reply_text("Error: account type not set. Please start over.")
             return ConversationHandler.END
         count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
         stock = count.count if hasattr(count, 'count') else 0
         if stock < qty:
-            await update.message.reply_text(f"❌ Only {stock} codes available. Please enter a lower quantity (1-{MAX_QUANTITY}):")
+            await update.message.reply_text(f"❌ Only {stock} accounts available. Please enter a lower quantity:")
             return CUSTOM_QUANTITY
         await process_quantity(update, context, qty)
         return ConversationHandler.END
     except ValueError:
         if 'coupon_type' not in context.user_data:
-            await update.message.reply_text("Session expired. Please select voucher again.")
+            await update.message.reply_text("Session expired. Please select account type again.")
             return ConversationHandler.END
-        await update.message.reply_text("Invalid number. Please enter a valid quantity (1-2):")
+        await update.message.reply_text("Invalid number. Please enter a valid quantity:")
         return CUSTOM_QUANTITY
 
 async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, qty):
@@ -547,7 +532,7 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
     stock = count.count if hasattr(count, 'count') else 0
     if stock < qty:
-        await (update.message or update.callback_query.message).reply_text(f"❌ Only {stock} codes available for Netflix Premium Acc.")
+        await (update.message or update.callback_query.message).reply_text(f"❌ Only {stock} accounts available for Netflix Account.")
         return
 
     prices = supabase.table('prices').select('*').eq('coupon_type', ctype).execute()
@@ -586,7 +571,7 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     invoice_text = (
         f"🧾 INVOICE\n━━━━━━━━━━━━━━\n"
         f"🆔 {order_id}\n"
-        f"📦 Netflix Premium Acc (x{qty})\n"
+        f"📦 Netflix Account (x{qty})\n"
         f"💰 Pay Exactly: ₹{total}\n"
         f"⚠️ CRITICAL: You MUST pay exact amount. Do not ignore the paise (decimals), or the bot will NOT find your payment!\n\n"
         f"⏳ QR valid for 10 minutes."
@@ -641,7 +626,7 @@ async def payment_screenshot_handler(update: Update, context: ContextTypes.DEFAU
         f"User: {user_mention} (ID: {update.effective_user.id})\n"
         f"UTR Number: {utr_number}\n"
         f"Order: {o['order_id']}\n"
-        f"Type: Netflix Premium Acc x{o['quantity']}\n"
+        f"Type: Netflix Account x{o['quantity']}\n"
         f"Total: ₹{o['total_price']}\n\n"
         f"Accept or Decline?"
     )
@@ -706,14 +691,14 @@ async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYP
         codes_text = "\n".join(codes)
         await context.bot.send_message(
             o['user_id'],
-            f"✅ Payment accepted! Here are your codes:\n{codes_text}\n\nThanks for purchasing!"
+            f"✅ Payment accepted! Here are your accounts:\n{codes_text}\n\nThanks for purchasing!"
         )
 
         await query.message.delete()
 
         await context.bot.send_message(
             update.effective_user.id,
-            f"✅ Order {order_id} approved. Codes sent to user."
+            f"✅ Order {order_id} approved. Accounts sent to user."
         )
     else:  # decline
         supabase.table('orders').update({'status': 'declined'}).eq('order_id', order_id).execute()
@@ -743,17 +728,17 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ctype = data.split('_')[2]
         context.user_data.clear()
         context.user_data['admin_action'] = ('add', ctype)
-        await query.edit_message_text(f"Send the coupon codes for Netflix Premium Acc (one per line):")
+        await query.edit_message_text(f"Send the account details for Netflix Account (one per line):")
     elif data.startswith('admin_remove_'):
         ctype = data.split('_')[2]
         context.user_data.clear()
         context.user_data['admin_action'] = ('remove', ctype)
-        await query.edit_message_text(f"How many codes to remove from Netflix Premium Acc? (send a number)")
+        await query.edit_message_text(f"How many accounts to remove from Netflix Account? (send a number)")
     elif data.startswith('admin_free_'):
         ctype = data.split('_')[2]
         context.user_data.clear()
         context.user_data['admin_action'] = ('free', ctype)
-        await query.edit_message_text(f"How many free codes from Netflix Premium Acc? (send a number)")
+        await query.edit_message_text(f"How many free accounts from Netflix Account? (send a number)")
     elif data.startswith('admin_prices_'):
         ctype = data.split('_')[2]
         keyboard = InlineKeyboardMarkup([
@@ -762,14 +747,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("10 Qty", callback_data=f"admin_price_qty_{ctype}_10")],
             [InlineKeyboardButton("20 Qty", callback_data=f"admin_price_qty_{ctype}_20")]
         ])
-        await query.edit_message_text(f"Select quantity for Netflix Premium Acc price change:", reply_markup=keyboard)
+        await query.edit_message_text(f"Select quantity for Netflix Account price change:", reply_markup=keyboard)
     elif data.startswith('admin_price_qty_'):
         parts = data.split('_')
         ctype = parts[3]
         qty = parts[4]
         context.user_data.clear()
         context.user_data['admin_action'] = ('price', ctype, qty)
-        await query.edit_message_text(f"Enter new price for Netflix Premium Acc, {qty} Qty:")
+        await query.edit_message_text(f"Enter new price for Netflix Account, {qty} Qty:")
     else:
         await query.edit_message_text("Unknown action.")
 
@@ -849,7 +834,7 @@ def set_webhook():
 def home():
     return "Bot is running!", 200
 
-# ==================== AUTOMATIC WEBHOOK SETUP ON STARTUP ====================
+# ==================== AUTOMATIC WEBHOOK SETUP ====================
 def set_webhook_automatically():
     external_url = os.environ.get("RENDER_EXTERNAL_URL")
     if external_url:
