@@ -158,7 +158,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
     user = update.effective_user
-    # Fixed upsert with on_conflict to avoid duplicate key error
     supabase.table('users').upsert({
         'user_id': user.id,
         'username': user.username,
@@ -203,7 +202,6 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_message_handler(update, context)
         return
 
-    # Common terms text for both Buy Accounts and Disclaimer
     terms_text = (
         "1. Once Accounts is delivered, no returns or refunds will be accepted.\n"
         "2. All Accounts are fresh and valid.\n"
@@ -252,7 +250,7 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
             price = supabase.table('prices').select('price_1').eq('coupon_type', ct).execute()
             price_val = price.data[0]['price_1'] if price.data else 'N/A'
             msg += f"▫️ Netflix Account: {stock} left (₹{price_val})\n"
-        msg += "\n🤖 Buy from: @VIIP_SELLING_BOT"
+        msg += "\n🤖 Buy from: @AutoEarnX_Netflix_Acc_Bot"
         await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
     elif option == "🎁 Get Free Account":
         context.user_data.clear()
@@ -367,14 +365,15 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop('broadcast', None)
         return
 
+    # ========== QR CODE UPDATE (FIXED) ==========
     if context.user_data.get('awaiting_qr'):
         if photo:
             file_id = photo.file_id
             supabase.table('settings').upsert({'key': 'qr_image', 'value': file_id}).execute()
-            await update.message.reply_text("QR code updated.", reply_markup=get_admin_reply_keyboard())
+            await update.message.reply_text("✅ QR code updated successfully.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('awaiting_qr', None)
         else:
-            await update.message.reply_text("Please send an image.")
+            await update.message.reply_text("❌ Please send a valid image (photo).", reply_markup=get_admin_reply_keyboard())
         return
 
     if context.user_data.get('block_username'):
@@ -397,13 +396,12 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     if 'admin_action' in context.user_data:
         action = context.user_data['admin_action']
-        # ==================== ADD ACCOUNT (ONE BLOCK ONLY) ====================
+        # Add Account (one block only)
         if action[0] == 'add':
             ctype = action[1]
             if not text:
                 await update.message.reply_text("Please send the account details as text.")
                 return
-            # Treat the entire message as ONE account (no splitting by lines)
             full_account = text.strip()
             if full_account:
                 supabase.table('coupons').insert({'code': full_account, 'type': ctype}).execute()
@@ -412,7 +410,6 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("❌ Empty message. No account added.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
-        # ==================== REMOVE ACCOUNT (bulk by count) ====================
         elif action[0] == 'remove':
             ctype = action[1]
             try:
@@ -426,7 +423,6 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
-        # ==================== GET FREE ACCOUNT (bulk by count) ====================
         elif action[0] == 'free':
             ctype = action[1]
             try:
@@ -446,7 +442,6 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
-        # ==================== CHANGE PRICES ====================
         elif action[0] == 'price':
             ctype = action[1]
             qty = action[2]
@@ -513,7 +508,6 @@ async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
         if qty <= 0:
             await update.message.reply_text("❌ Quantity must be a positive number. Please enter a valid quantity:")
             return CUSTOM_QUANTITY
-        # No upper limit
         ctype = context.user_data.get('coupon_type')
         if not ctype:
             await update.message.reply_text("Error: account type not set. Please start over.")
@@ -806,10 +800,23 @@ telegram_app.add_handler(CallbackQueryHandler(admin_accept_decline, pattern="^(a
 telegram_app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
 telegram_app.add_handler(CallbackQueryHandler(cancel_quantity_callback, pattern="^cancel_quantity$"))
 
+# ========== FIXED PHOTO HANDLER FOR QR UPDATE ==========
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    # Only proceed if admin and expecting QR
     if user.id in ADMIN_IDS and context.user_data.get('awaiting_qr'):
-        await admin_message_handler(update, context)
+        photo = update.message.photo[-1] if update.message.photo else None
+        if photo:
+            file_id = photo.file_id
+            supabase.table('settings').upsert({'key': 'qr_image', 'value': file_id}).execute()
+            await update.message.reply_text("✅ QR code updated successfully.", reply_markup=get_admin_reply_keyboard())
+            context.user_data.pop('awaiting_qr', None)
+        else:
+            await update.message.reply_text("❌ Please send a valid image.", reply_markup=get_admin_reply_keyboard())
+    else:
+        # If not expecting QR, just ignore (or send a generic message)
+        pass
+
 telegram_app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
 
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
